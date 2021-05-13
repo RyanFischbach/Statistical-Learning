@@ -1,0 +1,166 @@
+---
+title: "Project 3"
+author: "Ryan Fischbach"
+date: "5/1/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+#Install required packages
+library(ggplot2)
+library(leaps)
+library(glmnet)
+library("VIM")
+library(corrplot)
+library(caret)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(randomForest)
+```
+
+```{r}
+# Import data and get general information
+fooddata <- read.csv("/Users/rtf/Google Drive (fiscrt17@wfu.edu)/Fourth Year/STA363/Project3/McDonaldsProj3.csv")
+ncol(fooddata)
+nrow(fooddata)
+```
+
+```{r}
+#Remove daily value columns because they encode the same information as the macronutrient
+#Remove calories from fat
+subsetFooddata = fooddata[c(-2, -5, -7, -9, -12, -14, -16, -18)]
+```
+
+```{r}
+#Histogram to check for missing data
+aggr_plot <- aggr(subsetFooddata, col = c("navyblue", 'red'), numbers=TRUE, sortVars=TRUE, labels=names(subsetFooddata), cex.axis=0.7, gap=3, ylab=c("Histogram of missing data", "Pattern"))
+```
+
+```{r}
+#Get information on rows and columns of cleaned dataset
+ncol(subsetFooddata)
+nrow(subsetFooddata)
+```
+
+```{r, warning = F, message=F}
+ggplot(subsetFooddata, aes(x=Calories)) + geom_histogram() + labs(title="Figure 2.1: Distribution of Calories", x = "Calories", y = "Number of Food Items")
+```
+
+```{r}
+set.seed(42)
+suppressMessages(library(rpart))
+#Grow the tree
+tree.calories <- rpart(Calories ~ . - Calories, method="anova", data=subsetFooddata, cp = 0.02)
+
+#print output to determine best number of splits
+#print(tree.calories$cptable)
+
+#prune tree
+prune.tree.calories <- prune(tree.calories, cp=tree.calories$cptable[5, "CP"])
+
+#Visualize tree
+fancyRpartPlot(prune.tree.calories, sub="", cex=0.8, main="Figure 2.2: Tree to Model Calories")
+```
+
+```{r}
+set.seed(42)
+
+#Estimated MSE for root (training MSE)
+MSE_root <- mean(((subsetFooddata$Calories) - mean((subsetFooddata$Calories)))^2)
+
+#Root node error times xerror (xerror: column times the RNE gives us 10-fold CV estimated test MSE)
+testRMSE_pruned = sqrt(MSE_root * tree.calories$cptable[5, "xerror"])
+
+#Root node error times relerror (relerror: column times the RNE gives us training RMSE)
+trainingRMSE_pruned = sqrt(MSE_root * tree.calories$cptable[5, "rel error"])
+```
+
+```{r}
+ggplot(subsetFooddata, aes(x=Category)) + geom_bar() + labs(title="Figure 3.1: Distribution of Categories", x = "Categories", y = "Number of Food Items")
+```
+
+```{r}
+#Set seed and suppress messages
+set.seed(42)
+suppressMessages(library(rpart))
+
+#Grow the tree
+tree.categories <- rpart(Category ~ ., method="class", data=subsetFooddata, control = rpart.control(minsplit = 10, minsize = 5, mindev = 0, cp = 0))
+
+#print output to determine best number of splits
+#printcp(tree.categories)
+
+#prune tree based on balance of reduction of error and # of splits
+prune.tree.categories <- prune(tree.categories, cp=tree.categories$cptable[8, "CP"])
+
+#Visualize tree
+prp(prune.tree.categories, sub="", box.palette="RdYlGn", main="Figure 3.2: Tree to Model Categories", cex=0.8)
+```
+
+```{r}
+set.seed(42)
+
+#printcp(tree.categories)
+
+#Estimated CER for root (training CER)
+RNE <- 137/259
+
+#Root node error times xerror (xerror: column times the RNE gives us 10-fold CV estimated test CER)
+testCER_pruned = RNE * tree.categories$cptable[8, "xerror"]
+
+#Root node error times relerror (relerror: column times the RNE gives us training CER)
+trainingCER_pruned = RNE * tree.categories$cptable[8, "rel error"]
+```
+
+```{r}
+set.seed(42)
+
+#train bagged forest
+bag.calories <- randomForest(Calories ~ ., data=subsetFooddata, mtry=15, importance = TRUE, ntree = 100, compete = FALSE)
+
+#obtain OOB predictions
+#predict.OOB <- bag.calories$predicted
+
+#compute OOB error
+#sqrt(mean((subsetFooddata$Calories - predict.OOB)^2))
+```
+
+```{r}
+#Plot importance
+dotchart(importance(bag.calories)[,1], xlab = "Percent Increase in OOB Error", ylab = "Features", main = "Figure 4.1: % Increase in OOB Error in Bagged Forest")
+```
+
+```{r}
+set.seed(42)
+
+#train random forest
+rf.calories <- randomForest(Calories ~ ., data=subsetFooddata, mtry=sqrt(15), importance = TRUE, ntree = 100, compete = FALSE)
+
+#obtain OOB predictions
+predict.OOB <- rf.calories$predicted
+
+#compute OOB error
+#sqrt(mean((subsetFooddata$Calories - predict.OOB)^2))
+```
+
+```{r}
+#Plot importance
+dotchart(importance(rf.calories)[,1], xlab = "Percent Increase in OOB Error", ylab = "Features", main = "Figure 4.2: % Increase in OOB Error in Random Forest")
+```
+
+```{r}
+#Partial plot for fat
+partialPlot(bag.calories, subsetFooddata, x.var = "Total.Fat", ylab = "Calories", main = "Figure 4.3: Partial Dependence on Total.Fat")
+```
+
+```{r}
+#Partial plot for carbs
+partialPlot(bag.calories, subsetFooddata, x.var = "Carbohydrates", ylab = "Calories", main = "Figure 4.3: Partial Dependence on Carbohydrates")
+```
+
+

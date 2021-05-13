@@ -1,0 +1,183 @@
+---
+title: "Project 2"
+author: "Ryan Fischbach"
+date: "3/30/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+#Install required packages
+library(ggplot2)
+library(leaps)
+library(glmnet)
+library("VIM")
+library(corrplot)
+library(caret)
+```
+
+```{r, include=FALSE}
+# Import data and get general information
+collegedata <- read.csv("/Users/rtf/Google Drive (fiscrt17@wfu.edu)/Fourth Year/STA363/Project 2/collegedata.csv")
+ncol(collegedata)
+nrow(collegedata)
+```
+
+```{r, include=FALSE}
+#Encode private from Yes/No to 1/0
+collegedata$Private <- ifelse(collegedata$Private=='Yes', 1, 0)
+
+#Note 1: remove enroll column and University Column
+subsetCollegedata = collegedata[c(-1,-5)]
+
+#Note 2: add "Rate" column = Accept / Apps and remove accept
+subsetCollegedata["Rate"] = subsetCollegedata["Accept"] / subsetCollegedata["Apps"]
+subsetCollegedata2 = subsetCollegedata[c(-3)]
+```
+
+```{r, include=FALSE}
+#Create visualization to show any missing data
+aggr_plot <- aggr(subsetCollegedata2, col = c("navyblue", 'red'), numbers=TRUE, sortVars=TRUE, labels=names(subsetCollegedata2), cex.axis=0.7, gap=3, ylab=c("Histogram of missing data", "Pattern"))
+```
+
+```{r, include=FALSE}
+#Get information on rows and columns of cleaned dataset
+ncol(subsetCollegedata2)
+nrow(subsetCollegedata2)
+```
+
+```{r, include=FALSE}
+#Run BSS
+BSSfull <- regsubsets(Apps ~ ., data = subsetCollegedata2)
+summary(BSSfull)
+```
+
+```{r}
+#Plot metrics of BSS
+plot(BSSfull, scale = "adjr2", main = "Figure 2.1: Performance of Models in BSS")
+```
+
+```{r, include=FALSE}
+#See coefficients of final model
+finalModel1 = lm(Apps ~ F.Undergrad + Expend + Grad.Rate + Rate, data=subsetCollegedata2) 
+summary(finalModel1)
+```
+
+```{r, include=FALSE}
+#Perform cross validation
+
+#Choose k
+k <- 10
+
+#Define n
+n <- nrow(subsetCollegedata2)
+
+#Create storage
+residualsKFOLD1 <- matrix(NA, nrow = n, ncol=1)
+
+#Create folds
+set.seed(123)
+
+folds <- sample(rep(1:k, 78), n, replace=FALSE)
+
+for(i in 1:k){
+  #Find the rows in fold i
+  infold <- which(folds==i)
+  
+  #Create training set
+  CVTrain <- subsetCollegedata2[-infold,]
+  
+  #Create test set
+  CVTest <- subsetCollegedata2[infold,]
+  
+  lmCV1 <- lm(Apps ~ F.Undergrad + Expend + Grad.Rate + Rate, data=CVTrain)
+  
+  #Predict on CV Test data
+  predCV1 <- predict(lmCV1, newdata=CVTest)
+  
+  #Compute the MSRE for each fold and store
+  residualsKFOLD1[infold] <- CVTest$Apps - predCV1
+
+}
+  #Compute the average MSRE across all folds
+  RMSE1 = sqrt(mean((residualsKFOLD1)^2))
+```
+
+```{r}
+#Check correlation of predictors
+corrplot(cor(subsetCollegedata2), method="circle", main="Figure 3.1: Correlation Matrix of Features")
+```
+
+```{r}
+#run ridge regression to find optimal values
+XD <- model.matrix(Apps ~ ., data =subsetCollegedata2)
+ridge.mod <- glmnet(XD[, -1], subsetCollegedata2$Apps, alpha = 0, standardize = TRUE)
+
+set.seed(1)
+cv.out <- cv.glmnet(XD[, -1], subsetCollegedata2$Apps, alpha=0, lambda=seq(from = 0, to = 1000, by = 0.5))
+plot(cv.out, main="Figure 3.2: MSE vs Lambda Value, 10-fold CV")
+```
+
+```{r}
+#Compute final ridge model and show coefficients
+ridge.final <- glmnet(XD[, -1], subsetCollegedata2$Apps, alpha=0, lambda= cv.out$lambda.min)
+#predict(ridge.final, type = "coefficients", s = cv.out$lambda.min)
+#sqrt(min(cv.out$cvm))
+```
+
+
+```{r}
+#Create table to show comparison between full and shrinkage models
+Mat <- cbind(FullModel = coefficients(glmnet(XD[ , -1], subsetCollegedata2$Apps, alpha =0 ,lambda = 0 )), Shrinkage = coefficients(ridge.final))
+Mat <-as.matrix(Mat)
+colnames(Mat) <-c("Full Model", "Shrinkage")
+Mat <- data.frame(Mat)
+knitr::kable(Mat, caption = "Comparing the Full Model and Shrinkage")
+```
+
+```{r}
+#Fit lasso model
+cv.out.2 <- cv.glmnet(XD[, -1], subsetCollegedata2$Apps, alpha = 1, lambda = seq(from = 0, to = 1000, by = .5) )
+plot(cv.out.2, main="Figure 4.1: MSE vs Lambda Value, 10-fold CV")
+```
+
+```{r}
+#Compute final ridge model and show coefficients
+lasso.final <- glmnet(XD[, -1], subsetCollegedata2$Apps, alpha=1, lambda= cv.out.2$lambda.min)
+#predict(lasso.final, type = "coefficients", s = cv.out$lambda.min)
+#sqrt(min(cv.out.2$cvm))
+```
+
+
+```{r}
+#Create table to compare full, shrinkage, and lasso models
+Mat <- cbind(FullModel = coefficients(glmnet(XD[ , -1], subsetCollegedata2$Apps, alpha =0 ,lambda = 0 )), Shrinkage = coefficients(ridge.final), Lasso = coefficients(lasso.final))
+Mat <-as.matrix(Mat)
+colnames(Mat) <-c("Full Model", "Shrinkage", "Lasso")
+Mat <- data.frame(Mat)
+knitr::kable(Mat, caption="Comparing the Full Model, Shrinkage, and Lasso")
+```
+
+```{r}
+#Fit elasticnet model
+set.seed(123)
+model_elnet = train(Apps ~ ., data = subsetCollegedata2, method = "glmnet", trControl = trainControl(method = "cv", number= 10))
+#coef(model_elnet$finalModel, model_elnet$bestTune$lambda)
+```
+
+```{r, include=FALSE}
+#Print results to find best parameter values
+model_elnet$results
+```
+
+```{r}
+#Create table to compare all model coefficients
+Mat <- cbind(FullModel = coefficients(glmnet(XD[ , -1], subsetCollegedata2$Apps, alpha =0 ,lambda = 0 )), Shrinkage = coefficients(ridge.final), Lasso = coefficients(lasso.final), ElasticNet = coef(model_elnet$finalModel, model_elnet$bestTune$lambda))
+Mat <-as.matrix(Mat)
+colnames(Mat) <-c("Full Model", "Shrinkage", "Lasso", "Elastic Net")
+Mat <- data.frame(Mat)
+knitr::kable(Mat, caption="Comparing the Full Model, Shrinkage, Lasso, and ElasticNet")
+```

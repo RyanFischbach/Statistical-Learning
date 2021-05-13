@@ -1,0 +1,164 @@
+---
+title: "Project 1"
+author: "Ryan Fischbach"
+date: "2/20/2021"
+output: pdf_document
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(ggplot2)
+```
+
+```{r}
+#import data
+starwars <- read.csv("~/Google Drive (fiscrt17@wfu.edu)/Fourth Year/STA363/Project 1/starwars.csv")
+
+#subset data to only have columns of interest (mass, height, species)
+subsetStarWars <- subset(starwars, select = c("mass", "height", "species"))
+```
+
+```{r}
+#remove na values from subsetted dataframe
+subsetStarWars = na.omit(subsetStarWars)
+```
+
+```{r out.width = "75%"}
+#plot height of character on mass
+ggplot(data = subsetStarWars, aes(x = mass, y = height)) + geom_point(color = "blue") + labs(x =" Mass of Character (kg)", y = "Height of Character (cm)", title = "Height of Character on Mass") + stat_smooth(method = "lm", formula = y~x, se = FALSE)
+```
+
+```{r out.width = "75%"}
+#Create a new column for easier labeling
+subsetStarWars$human <- subsetStarWars$species
+subsetStarWars$human[subsetStarWars$species!='Human'] <- "Not Human"
+
+#Graph relationship between height and mass with humans and not humans
+ggplot(data = subsetStarWars, mapping = aes(x = subsetStarWars$mass, y = subsetStarWars$height, color = human)) + geom_point() + labs(x =" Mass of Character (kg)", y = "Height of Character (cm)", title = "Height of Character on Mass") + facet_wrap( ~ human, ncol = 2) + stat_smooth(method = "lm", formula = y~x, se = FALSE)
+
+```
+
+```{r}
+#box plot to show outlier
+#ggplot(subsetStarWars,  aes(  x = mass)  )  + geom_boxplot( fill = 'blue' )
+
+#remove Hutt observation
+subsetStarWars <- subsetStarWars[subsetStarWars$species != "Hutt",]
+```
+
+```{r}
+#Create a new column for easier labeling
+subsetStarWars$human <- subsetStarWars$species
+subsetStarWars$human[subsetStarWars$species!='Human'] <- "Not Human"
+
+#Graph relationship between height and mass with humans and not humans
+ggplot(data = subsetStarWars, mapping = aes(x = subsetStarWars$mass, y = subsetStarWars$height, color = human)) + geom_point() + labs(x =" Mass of Character (kg)", y = "Height of Character (cm)", title = "Height of Character on Mass") + facet_wrap( ~ human, ncol = 2) + stat_smooth(method = "lm", formula = y~x, se = FALSE)
+
+```
+```
+
+
+```{r}
+#Count number of observations
+n <- nrow(subsetStarWars)
+
+#Prepare data for different model by creating binary dummy variable
+subsetStarWars$human <- NA
+subsetStarWars$human[subsetStarWars$species!='Human'] <- 0
+subsetStarWars$human[subsetStarWars$species=='Human'] <- 1
+
+#Set a Random Seed
+set.seed(223)
+
+#Choose training set indices using 80:20 split
+rowsTraining <- sample(1:n, n*.8, replace=FALSE)
+
+#Create training and test sets
+VAtraining <- subsetStarWars[rowsTraining, ]
+VAtest <- subsetStarWars[-rowsTraining, ]
+
+#Fit model 1
+combinedModel <- lm(height ~ mass, data=VAtraining)
+
+#Fit model 2
+differentModel <- lm(height ~ mass + human, data=VAtraining)
+
+#calculate predictions
+combined_predsVA <- predict(combinedModel, newdata=VAtest)
+different_predsVA <- predict(differentModel, newdata=VAtest)
+
+#Calculate rmse for the two models
+rmse_m1VA = sqrt(mean((VAtest$height - combined_predsVA)^2))
+rmse_m2VA = sqrt(mean((VAtest$height - different_predsVA)^2))
+
+```
+
+
+```{r}
+#Choose k
+k <- 10
+
+#Define n
+n <- nrow(subsetStarWars)
+
+#Prepare data for different model by creating binary dummy variable
+subsetStarWars$human <- NA
+subsetStarWars$human[subsetStarWars$species!='Human'] <- 0
+subsetStarWars$human[subsetStarWars$species=='Human'] <- 1
+
+#Create storage
+residualsKFOLD1 <- matrix(NA, nrow = n, ncol=1)
+residualsKFOLD2 <- matrix(NA, nrow = n, ncol=1)
+
+#Create folds
+set.seed(123)
+
+folds <- sample(rep(1:k, 40), n, replace=FALSE)
+
+for(i in 1:k){
+  #Find the rows in fold i
+  infold <- which(folds==i)
+  
+  #Create training set
+  CVTrain <- subsetStarWars[-infold,]
+  
+  #Create test set
+  CVTest <- subsetStarWars[infold,]
+  
+  #Train the model(s) of interest.
+  lmCV1 <- lm(height ~ mass, data=CVTrain)
+  
+  #Predict on CV Test data
+  predCV1 <- predict(lmCV1, newdata=CVTest)
+  
+  #Compute the MSRE for each fold and store
+  residualsKFOLD1[infold] <- sqrt(mean(CVTest$height - predCV1)^2)
+
+  #Fit model 2 (separate variables human and nonhuman)
+  CVdifferent_model <- lm(height ~ mass + human, data=CVTrain)
+  
+  #Compute predictions for human and nonhumans and combine
+  CVdifferent_predictions <- predict(CVdifferent_model, newdata=CVTest)
+
+  residualsKFOLD2[infold] <- sqrt(mean(CVTest$height - CVdifferent_predictions)^2)
+
+}
+  #Compute the average MSRE across all folds
+  msre1 = mean(residualsKFOLD1)
+  msre2 = mean(residualsKFOLD2)
+```
+
+```{r}
+#train final model
+finalModel = lm(height ~ mass + human, data=subsetStarWars)
+
+#produce parameters of final model
+#summary(finalModel)
+
+#produce confidence interval of all slopes
+#confint(finalModel)
+```
+
